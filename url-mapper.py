@@ -8,7 +8,7 @@ import faiss
 import warnings
 import multiprocessing as mp
 
-# Disable safetensors usage
+# Disable safetensors usage (set this early)
 os.environ["TRANSFORMERS_NO_SAFETENSORS"] = "1"
 
 # Set environment variables to mitigate OpenMP and fork safety issues on macOS
@@ -30,6 +30,7 @@ if sys.platform == "darwin":
 try:
     mp.set_start_method("spawn", force=True)
 except RuntimeError:
+    # The start method has already been set
     pass
 
 warnings.filterwarnings("ignore", message="resource_tracker: There appear to be")
@@ -41,7 +42,7 @@ def create_text_field(df, cols):
 # App title and description
 st.title("Semantic URL Mapper")
 
-# Inject custom CSS for green styling of the expander header and content
+# Inject custom CSS for green-styled expander header and content
 st.markdown(
     """
     <style>
@@ -77,7 +78,7 @@ st.markdown(
 with st.expander("💡 How It Works"):
     st.markdown(
         """
-The app leverages **MiniLM** (using the paraphrase-MiniLM-L6-v2 model) to convert your descriptive data into numerical embeddings that capture semantic meaning.
+The app leverages **MiniLM** (using the **all-MiniLM-L6-v2** model) to convert your descriptive data into numerical embeddings that capture semantic meaning.
 
 It then uses **FAISS**, an efficient similarity search library, to index these embeddings and quickly find the new URL that best matches each original URL.
         """
@@ -99,7 +100,7 @@ if src_file and tgt_file:
 
     if selected_cols:
         st.subheader("URL Column Selection")
-        # Use 'Address' column if it exists, otherwise let user choose
+        # Use 'Address' column if present, otherwise let user choose
         if "Address" in src_df.columns:
             src_url_col = "Address"
             st.info("Using 'Address' column from source file as URL.")
@@ -112,35 +113,31 @@ if src_file and tgt_file:
         else:
             tgt_url_col = st.selectbox("Select the URL column from the destination file", tgt_df.columns, key="tgt_url")
 
-        # Button to start the mapping process
+        # Button to start the matching process
         if st.button("Run URL Mapping"):
             with st.spinner("Calculating semantic similarities..."):
-                # Create a new text field for embedding using the selected columns
+                # Combine selected columns into a single text field for each row
                 src_df["semantic_text"] = create_text_field(src_df, selected_cols)
                 tgt_df["semantic_text"] = create_text_field(tgt_df, selected_cols)
 
-                # Option 1: Load model from Hugging Face with a cache folder
-                model = SentenceTransformer("paraphrase-MiniLM-L6-v2", cache_folder="./model_cache")
-                
-                # Option 2 (if you have downloaded the model locally, uncomment the next line and comment the above):
-                # model = SentenceTransformer("./paraphrase-MiniLM-L6-v2")
-                
+                # Load the pre-trained model from Hugging Face using the all-MiniLM-L6-v2 model and a cache folder
+                model = SentenceTransformer("all-MiniLM-L6-v2", cache_folder="./model_cache")
                 src_embeddings = model.encode(src_df["semantic_text"].tolist(), show_progress_bar=True)
                 tgt_embeddings = model.encode(tgt_df["semantic_text"].tolist(), show_progress_bar=True)
 
-                # Build a FAISS index for the destination embeddings
+                # Build a FAISS index for destination embeddings
                 vec_dimension = src_embeddings.shape[1]
                 index = faiss.IndexFlatL2(vec_dimension)
                 index.add(np.array(tgt_embeddings, dtype=np.float32))
 
-                # Perform a nearest-neighbor search for each source embedding
+                # Perform nearest-neighbor search for each source embedding
                 distances, indices = index.search(np.array(src_embeddings, dtype=np.float32), k=1)
 
-                # Normalize distances and convert to a similarity score
+                # Normalize distances and convert to similarity scores
                 norm_factor = distances.max()
                 similarity = 1 - (distances / norm_factor)
 
-                # Create a results DataFrame
+                # Create results DataFrame
                 mapping_df = pd.DataFrame({
                     "Source URL": src_df[src_url_col],
                     "Matched URL": tgt_df[tgt_url_col].iloc[indices.flatten()].values,
@@ -150,7 +147,7 @@ if src_file and tgt_file:
             st.success("Mapping complete!")
             st.dataframe(mapping_df)
 
-            # Allow the user to download the results as a CSV
+            # Download CSV button for results
             csv_data = mapping_df.to_csv(index=False).encode("utf-8")
             st.download_button(
                 label="Download Mapping as CSV",
