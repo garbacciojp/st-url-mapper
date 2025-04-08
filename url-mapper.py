@@ -98,7 +98,7 @@ if src_file and tgt_file:
 
     if selected_cols:
         st.subheader("URL Column Selection")
-        # If a default 'Address' column exists, use it; otherwise let the user choose
+        # Use 'Address' column if it exists, otherwise let user choose
         if "Address" in src_df.columns:
             src_url_col = "Address"
             st.info("Using 'Address' column from source file as URL.")
@@ -118,8 +118,8 @@ if src_file and tgt_file:
                 src_df["semantic_text"] = create_text_field(src_df, selected_cols)
                 tgt_df["semantic_text"] = create_text_field(tgt_df, selected_cols)
 
-                # Load the pre-trained MiniLM model and encode the text fields
-                model = SentenceTransformer("all-MiniLM-L6-v2")
+                # Load the pre-trained MiniLM model from the local repository folder "all-MiniLM-L6-v2"
+                model = SentenceTransformer("./all-MiniLM-L6-v2")
                 src_embeddings = model.encode(src_df["semantic_text"].tolist(), show_progress_bar=True)
                 tgt_embeddings = model.encode(tgt_df["semantic_text"].tolist(), show_progress_bar=True)
 
