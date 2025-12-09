@@ -92,20 +92,31 @@ if src_file and tgt_file:
     src_df = pd.read_csv(src_file)
     tgt_df = pd.read_csv(tgt_file)
 
+    st.success(f"✅ Source file loaded: {len(src_df)} rows, columns: {', '.join(src_df.columns.tolist())}")
+    st.success(f"✅ Target file loaded: {len(tgt_df)} rows, columns: {', '.join(tgt_df.columns.tolist())}")
+
     st.header("Choose Columns for Semantic Matching")
-    # Allow independent column selection from each file
-    st.write("Select the descriptive columns to use for semantic matching from each file:")
+    st.write("Select which columns contain the descriptive text to match on:")
     
-    src_selected_cols = st.multiselect(
-        "Select columns from Source file", 
-        options=src_df.columns,
-        key="src_cols"
-    )
-    tgt_selected_cols = st.multiselect(
-        "Select columns from Target file", 
-        options=tgt_df.columns,
-        key="tgt_cols"
-    )
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Source File Columns")
+        src_selected_cols = st.multiselect(
+            "Select descriptive columns from Source file", 
+            options=list(src_df.columns),
+            key="src_cols",
+            help="Choose columns that describe what the URL is about"
+        )
+    
+    with col2:
+        st.subheader("Target File Columns")
+        tgt_selected_cols = st.multiselect(
+            "Select descriptive columns from Target file", 
+            options=list(tgt_df.columns),
+            key="tgt_cols",
+            help="Choose columns that describe what the URL is about"
+        )
 
     if not src_selected_cols:
         st.warning("⚠️ Please select at least one column from the Source file.")
@@ -113,36 +124,68 @@ if src_file and tgt_file:
         st.warning("⚠️ Please select at least one column from the Target file.")
 
     if src_selected_cols and tgt_selected_cols:
+        st.success(f"✅ Will match using: Source[{', '.join(src_selected_cols)}] ↔ Target[{', '.join(tgt_selected_cols)}]")
+        
         st.subheader("URL Column Selection")
-        # Use 'Address' column if it exists, otherwise let user choose
-        if "Address" in src_df.columns:
-            src_url_col = "Address"
-            st.info("Using 'Address' column from source file as URL.")
-        else:
-            src_url_col = st.selectbox("Select the URL column from the source file", src_df.columns, key="src_url")
-
-        if "Address" in tgt_df.columns:
-            tgt_url_col = "Address"
-            st.info("Using 'Address' column from destination file as URL.")
-        else:
-            tgt_url_col = st.selectbox("Select the URL column from the destination file", tgt_df.columns, key="tgt_url")
+        st.write("Now select which columns contain the actual URLs:")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Use 'Address' column if it exists, otherwise let user choose
+            if "Address" in src_df.columns:
+                src_url_col = "Address"
+                st.info("✅ Auto-detected 'Address' column from source file")
+            else:
+                src_url_col = st.selectbox(
+                    "Source URL column", 
+                    list(src_df.columns), 
+                    key="src_url",
+                    help="The column containing the source URLs"
+                )
+        
+        with col2:
+            if "Address" in tgt_df.columns:
+                tgt_url_col = "Address"
+                st.info("✅ Auto-detected 'Address' column from target file")
+            else:
+                tgt_url_col = st.selectbox(
+                    "Target URL column", 
+                    list(tgt_df.columns), 
+                    key="tgt_url",
+                    help="The column containing the target URLs"
+                )
 
         # Button to start the mapping process
-        if st.button("Run URL Mapping"):
-            with st.spinner("Calculating semantic similarities..."):
+        if st.button("🚀 Run URL Mapping", type="primary"):
+            try:
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                status_text.text("Step 1/5: Combining columns into text fields...")
+                progress_bar.progress(10)
                 # Create a new text field for embedding using the selected columns
                 src_df["semantic_text"] = create_text_field(src_df, src_selected_cols)
                 tgt_df["semantic_text"] = create_text_field(tgt_df, tgt_selected_cols)
 
+                status_text.text("Step 2/5: Loading AI model (this may take a moment on first run)...")
+                progress_bar.progress(20)
                 # Option 1: Load model from Hugging Face with a cache folder
                 model = SentenceTransformer("paraphrase-MiniLM-L6-v2", cache_folder="./model_cache")
                 
                 # Option 2 (if you have downloaded the model locally, uncomment the next line and comment the above):
                 # model = SentenceTransformer("./paraphrase-MiniLM-L6-v2")
                 
-                src_embeddings = model.encode(src_df["semantic_text"].tolist(), show_progress_bar=True)
-                tgt_embeddings = model.encode(tgt_df["semantic_text"].tolist(), show_progress_bar=True)
+                status_text.text(f"Step 3/5: Encoding {len(src_df)} source URLs...")
+                progress_bar.progress(40)
+                src_embeddings = model.encode(src_df["semantic_text"].tolist(), show_progress_bar=False)
+                
+                status_text.text(f"Step 4/5: Encoding {len(tgt_df)} target URLs...")
+                progress_bar.progress(60)
+                tgt_embeddings = model.encode(tgt_df["semantic_text"].tolist(), show_progress_bar=False)
 
+                status_text.text("Step 5/5: Finding best matches using FAISS...")
+                progress_bar.progress(80)
                 # Build a FAISS index for the destination embeddings
                 vec_dimension = src_embeddings.shape[1]
                 index = faiss.IndexFlatL2(vec_dimension)
@@ -161,15 +204,23 @@ if src_file and tgt_file:
                     "Matched URL": tgt_df[tgt_url_col].iloc[indices.flatten()].values,
                     "Similarity Score": np.round(similarity.flatten(), 4)
                 })
+                
+                progress_bar.progress(100)
+                status_text.empty()
+                progress_bar.empty()
 
-            st.success("Mapping complete!")
-            st.dataframe(mapping_df)
+                st.success(f"✅ Mapping complete! Matched {len(mapping_df)} URLs.")
+                st.dataframe(mapping_df, use_container_width=True)
 
-            # Allow the user to download the results as a CSV
-            csv_data = mapping_df.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                label="Download Mapping as CSV",
-                data=csv_data,
-                file_name="matched_urls.csv",
-                mime="text/csv"
-            )
+                # Allow the user to download the results as a CSV
+                csv_data = mapping_df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label="📥 Download Mapping as CSV",
+                    data=csv_data,
+                    file_name="matched_urls.csv",
+                    mime="text/csv",
+                    type="primary"
+                )
+            except Exception as e:
+                st.error(f"❌ An error occurred: {str(e)}")
+                st.exception(e)
