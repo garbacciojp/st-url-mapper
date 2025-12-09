@@ -93,11 +93,26 @@ if src_file and tgt_file:
     tgt_df = pd.read_csv(tgt_file)
 
     st.header("Choose Columns for Semantic Matching")
-    # Identify common columns between datasets
-    common_cols = list(set(src_df.columns) & set(tgt_df.columns))
-    selected_cols = st.multiselect("Select one or more columns to analyze", options=common_cols)
+    # Allow independent column selection from each file
+    st.write("Select the descriptive columns to use for semantic matching from each file:")
+    
+    src_selected_cols = st.multiselect(
+        "Select columns from Source file", 
+        options=src_df.columns,
+        key="src_cols"
+    )
+    tgt_selected_cols = st.multiselect(
+        "Select columns from Target file", 
+        options=tgt_df.columns,
+        key="tgt_cols"
+    )
 
-    if selected_cols:
+    if not src_selected_cols:
+        st.warning("⚠️ Please select at least one column from the Source file.")
+    if not tgt_selected_cols:
+        st.warning("⚠️ Please select at least one column from the Target file.")
+
+    if src_selected_cols and tgt_selected_cols:
         st.subheader("URL Column Selection")
         # Use 'Address' column if it exists, otherwise let user choose
         if "Address" in src_df.columns:
@@ -116,8 +131,8 @@ if src_file and tgt_file:
         if st.button("Run URL Mapping"):
             with st.spinner("Calculating semantic similarities..."):
                 # Create a new text field for embedding using the selected columns
-                src_df["semantic_text"] = create_text_field(src_df, selected_cols)
-                tgt_df["semantic_text"] = create_text_field(tgt_df, selected_cols)
+                src_df["semantic_text"] = create_text_field(src_df, src_selected_cols)
+                tgt_df["semantic_text"] = create_text_field(tgt_df, tgt_selected_cols)
 
                 # Option 1: Load model from Hugging Face with a cache folder
                 model = SentenceTransformer("paraphrase-MiniLM-L6-v2", cache_folder="./model_cache")
